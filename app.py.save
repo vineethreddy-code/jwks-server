@@ -1,0 +1,55 @@
+om flask import Flask, jsonify, request
+import os
+import json
+from utils import generate_rsa_key, create_jwt, verify_jwt
+from datetime import datetime
+
+app = Flask(__name__)
+
+# Ensure the keys directory exists
+if not os.path.exists('keys'):
+    os.makedirs('keys')
+
+# In-memory store for keys (kid -> expiry)
+keys = {}
+
+# JWKS endpoint to serve public keys
+@app.route('/jwks', methods=['GET'])
+def jwks():
+    jwks_keys = []
+    now = datetime.utcnow()
+
+    for kid, expiry in keys.items():
+        if expiry > now:
+            with open(f'./keys/{kid}_public.pem', 'rb') as pub_key_file:
+                public_key_pem = pub_key_file.read().decode('utf-8')
+                jwks_keys.append({
+                    "kid": kid,
+                    "kty": "RSA",
+                    "use": "sig",
+                    "alg": "RS256",
+                    "n": public_key_pem,  # In practice, use correct 
+modulus and exponent
+                })
+
+    return jsonify({"keys": jwks_keys})
+
+# Auth endpoint to issue JWTs
+@app.route('/auth', methods=['POST'])
+def auth():
+    expired = request.args.get('expired')
+    kid, expiry_time = generate_rsa_key("key1", -10 if expired else 60)  # 
+Generate expired if 'expired' param is passed
+    keys[kid] = expiry_time
+
+    payload = {
+        "sub": "user123",
+        "exp": expiry_time
+    }
+
+    token = create_jwt(kid, payload)
+    return jsonify({"token": token})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
+
